@@ -1,5 +1,11 @@
 # Dragon Age Origins Savegame Editor for XDroid360
 
+PRE-RELEASE (github page got auto created and will be updated soon).
+Page will be in english.
+Save Editor works and can be used to edit saves which got exported from XDroid360.
+python3-wxgtk4.0 is needed to open it
+
+––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––-
 Spielstand-Editor für **Dragon Age: Origins** (Xbox-360-Version, wie sie XDroid360 auf Android verwendet),
 lauffähig unter Linux (getestet für Linux Mint). Python 3 + wxPython 4.
 
