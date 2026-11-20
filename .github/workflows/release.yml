@@ -1,0 +1,25 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests
+        run: python3 tests/test_core.py
+      - name: Build zip
+        run: |
+          NAME=Dragon_Age_Origins_Savegame_Editor_for_XDroid360
+          mkdir -p dist/$NAME
+          cp -r README.md install.sh *.py gff4 dist/$NAME/
+          find dist -name __pycache__ -prune -exec rm -rf {} +
+          (cd dist && zip -qr ../$NAME-${GITHUB_REF_NAME}.zip $NAME)
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Dragon_Age_Origins_Savegame_Editor_for_XDroid360-*.zip
+          generate_release_notes: true
