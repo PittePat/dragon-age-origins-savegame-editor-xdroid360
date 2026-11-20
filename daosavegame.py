@@ -27,7 +27,8 @@ from gff4 import *
 from gff4.lazy import LazyGFF4
 from gff4.datoolset_fields import *
 from savezip import find_saves, read_member, replace_in_zip, format_seconds
-from abilities import (AbilityModel, POINT_STATS, KIND_TITLE, KIND_LABEL, stat_value, set_point_stat,
+from saveinfo import quest_entries, location_info
+from abilities import (AbilityModel, current_class, class_change_plan, change_class, CLASS_TITLES, POINT_STATS, KIND_TITLE, KIND_LABEL, stat_value, set_point_stat,
                        add_stat_property)
 
 _resdir = os.path.join(_here, 'gff4')
@@ -293,6 +294,9 @@ class InventoryPanel(wx.Panel):
         self.playtime.SetLabel(format_playtime(root))
 
 class ItemList(wx.ListCtrl, TextEditMixin, ColumnSorterMixin):
+    structural = True           # offer Duplicate / Move Item (not for lists with a fixed number of slots)
+    last_column = "16238"
+    
     def __init__(self, *args, **kwargs):
         kwargs['style'] = wx.LC_REPORT|wx.LC_VIRTUAL|wx.LC_HRULES|wx.LC_VRULES
         wx.ListCtrl.__init__(self, *args, **kwargs)
@@ -304,7 +308,7 @@ class ItemList(wx.ListCtrl, TextEditMixin, ColumnSorterMixin):
         self.InsertColumn(2, "Count", wx.LIST_FORMAT_CENTRE, 50)
         self.InsertColumn(3, "Infinite", wx.LIST_FORMAT_CENTRE, 50)
         self.InsertColumn(4, "Plot", wx.LIST_FORMAT_CENTRE, 50)
-        self.InsertColumn(5, "16238", wx.LIST_FORMAT_CENTRE, 50)
+        self.InsertColumn(5, self.last_column, wx.LIST_FORMAT_CENTRE, 50)
         
         TextEditMixin.__init__(self)
         
@@ -314,16 +318,18 @@ class ItemList(wx.ListCtrl, TextEditMixin, ColumnSorterMixin):
         ColumnSorterMixin.__init__(self, 6)
         
         self.context_menu = wx.Menu()
-        dupeitem = self.context_menu.Append(wx.ID_ANY, 'Duplicate')
-        moveitem = self.context_menu.Append(wx.ID_ANY, 'Move Item', 'Move selected items to a different inventory')
-        self.context_menu.AppendSeparator()
+        if self.structural:
+            dupeitem = self.context_menu.Append(wx.ID_ANY, 'Duplicate')
+            moveitem = self.context_menu.Append(wx.ID_ANY, 'Move Item', 'Move selected items to a different inventory')
+            self.context_menu.AppendSeparator()
         fielditem = self.context_menu.Append(wx.ID_ANY, 'Edit All Fields...', 'Edit every number/text field of the selected item')
         pickitem = self.context_menu.Append(wx.ID_ANY, 'Pick Item from List...', 'Change the ResRef of the selected items to a known item')
         
         self.Bind(wx.EVT_LIST_BEGIN_LABEL_EDIT, self.OnBeginEdit)
         self.Bind(wx.EVT_CONTEXT_MENU, lambda event: self.PopupMenu(self.context_menu))
-        self.Bind(wx.EVT_MENU, self.OnDupeItem, dupeitem)
-        self.Bind(wx.EVT_MENU, self.OnMoveItem, moveitem)
+        if self.structural:
+            self.Bind(wx.EVT_MENU, self.OnDupeItem, dupeitem)
+            self.Bind(wx.EVT_MENU, self.OnMoveItem, moveitem)
         self.Bind(wx.EVT_MENU, self.OnEditFields, fielditem)
         self.Bind(wx.EVT_MENU, self.OnPickItem, pickitem)
     
@@ -959,6 +965,7 @@ class AbilitiesPanel(wx.Panel):
         self.kind.SetSelection(0)
         self.only_learned = wx.CheckBox(self, label="Learned only")
         self.add_button = wx.Button(self, label="Add by ID...")
+        self.class_button = wx.Button(self, label="Change class (experimental)...")
         
         self.list = wx.dataview.DataViewListCtrl(self, style=wx.dataview.DV_ROW_LINES | wx.dataview.DV_SINGLE)
         self.list.AppendToggleColumn("Learned", mode=wx.dataview.DATAVIEW_CELL_ACTIVATABLE, width=70)
@@ -972,7 +979,8 @@ class AbilitiesPanel(wx.Panel):
         bar.Add(self.search, 1, wx.RIGHT, 10)
         bar.Add(self.kind, 0, wx.RIGHT, 10)
         bar.Add(self.only_learned, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
-        bar.Add(self.add_button, 0)
+        bar.Add(self.add_button, 0, wx.RIGHT, 10)
+        bar.Add(self.class_button, 0)
         
         self.title = wx.StaticText(self, label="")
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -985,11 +993,13 @@ class AbilitiesPanel(wx.Panel):
         self.kind.Bind(wx.EVT_CHOICE, self.OnFilter)
         self.only_learned.Bind(wx.EVT_CHECKBOX, self.OnFilter)
         self.add_button.Bind(wx.EVT_BUTTON, self.OnAddById)
+        self.class_button.Bind(wx.EVT_BUTTON, self.OnChangeClass)
         self.list.Bind(wx.dataview.EVT_DATAVIEW_ITEM_VALUE_CHANGED, self.OnToggle)
     
-    def load(self, stats, name):
-        """stats: the creature's CPS1 structure."""
+    def load(self, stats, name, allow_class_change=False):
+        """stats: the creature's CPS1 structure. The class can only be changed for the player character."""
         self.model = AbilityModel(stats)
+        self.class_button.Show(allow_class_change)
         self.title.SetLabel("Abilities of %s  -  tick = learned, untick = remove. Applied when you save." % name)
         self.Rebuild()
     
@@ -1033,6 +1043,27 @@ class AbilitiesPanel(wx.Panel):
             wx.MessageBox("Not possible for this character: %s" % ex, "Abilities", wx.OK | wx.ICON_INFORMATION, self)
             self.list.SetToggleValue(not wanted, row, 0)
     
+    def OnChangeClass(self, event):
+        current = current_class(self.model)
+        targets = [c for c in ('warrior', 'mage', 'rogue') if c != current]
+        with wx.SingleChoiceDialog(self, "Current class: %s\nChange to:" % CLASS_TITLES.get(current, "unknown"),
+                                   "Change class (experimental)", [CLASS_TITLES[c] for c in targets]) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            target = targets[dlg.GetSelection()]
+        removed = ", ".join(n for kind, i, n in class_change_plan(self.model, target)) or "nothing"
+        answer = wx.MessageBox("EXPERIMENTAL - not verified in the game. Make a backup first.\n\n"
+                               "Changing to %s removes the spells/talents of the current class (%s) and sets the "
+                               "class marker. Skills, attributes, level and equipment stay as they are, and the "
+                               "abilities of the new class have to be added afterwards (Spells & Skills, Points).\n\n"
+                               "Continue?" % (CLASS_TITLES[target], removed),
+                               "Change class", wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self)
+        if answer != wx.YES:
+            return
+        change_class(self.model, target)
+        self.changed = True
+        self.Rebuild()
+    
     def OnAddById(self, event):
         ability_id = wx.GetNumberFromUser("Ability id to add (as used by the console command 'addtalent').",
                                           "ID:", "Add ability by ID", 1, 0, 999999, self)
@@ -1060,6 +1091,80 @@ def _info_panel(parent, text):
     sizer.Add(wx.StaticText(panel, label=text), 0, wx.ALL, 15)
     panel.SetSizer(sizer)
     return panel
+
+class EquipmentList(ItemList):
+    """The equipped items of one character. The number of slots is fixed, so no Duplicate / Move Item here."""
+    structural = False
+    last_column = "Slot"
+    
+    def GetRowText(self, row):
+        text = ItemList.GetRowText(self, row)
+        text[5] = next((i for i, r in enumerate(self.data) if r is row), -1)
+        return text
+    
+    def OnGetItemText(self, index, column):
+        if column == 5:
+            return str(self.itemIndexMap[index])
+        return ItemList.OnGetItemText(self, index, column)
+
+class LocationPanel(wx.Panel):
+    """Where the party is: current area, position and the areas stored in the savegame (read-only)."""
+    def __init__(self, parent):
+        super(LocationPanel, self).__init__(parent)
+    
+    def load(self, root):
+        loc = location_info(root, _resrefnames)
+        def vec(v):
+            return "x %.2f    y %.2f    z %.2f" % v if v else "unknown"
+        area = "%s (%s)" % (loc.area_name, loc.area) if loc.area_name else (loc.area or "unknown")
+        visited = "\n".join("%s (%s)" % (name, tag) if name else tag for tag, name in loc.visited) or "none"
+        
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        grid = wx.FlexGridSizer(2, 8, 16)
+        for label, value in (("Current area", area), ("Player position", vec(loc.position)),
+                             ("Entry position", vec(loc.entry_position)), ("Map zoom", "%.2f" % loc.zoom),
+                             ("Areas in this savegame", visited)):
+            grid.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_TOP | wx.LEFT, 10)
+            grid.Add(wx.StaticText(self, label=value), 0)
+        sizer.Add(grid, 0, wx.ALL, 10)
+        sizer.Add(wx.StaticText(self, label="Display only. Changing the position is not offered: coordinates are only "
+                                            "valid inside their area and a wrong value can leave the character "
+                                            "stuck in a wall."), 0, wx.ALL, 15)
+        self.SetSizer(sizer)
+    
+    def save(self):
+        return False
+
+class QuestsPanel(wx.Panel):
+    """Active and completed quests from the journal (read-only)."""
+    def __init__(self, parent):
+        super(QuestsPanel, self).__init__(parent)
+    
+    def load(self, root):
+        quests = quest_entries(root)
+        self.list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_HRULES | wx.LC_VRULES)
+        for i, (title, width) in enumerate((("Status", 80), ("Quest", 200), ("Group", 150), ("Title", 330),
+                                            ("Updated", 70))):
+            self.list.InsertColumn(i, title, wx.LIST_FORMAT_LEFT, width)
+        for i, q in enumerate(quests):
+            self.list.InsertItem(i, q.status)
+            self.list.SetItem(i, 1, q.resref)
+            self.list.SetItem(i, 2, q.group)
+            self.list.SetItem(i, 3, q.title or "text #%d" % q.title_id)
+            self.list.SetItem(i, 4, "yes" if q.updated else "")
+        
+        active = sum(1 for q in quests if q.status == 'Active')
+        summary = wx.StaticText(self, label="%d active, %d completed. The savegame stores only text ids for the titles, "
+                                            "so readable titles are not available (yet). Display only: quest progress "
+                                            "also depends on game variables, so it is not editable here."
+                                % (active, len(quests) - active))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(summary, 0, wx.ALL, 10)
+        sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        self.SetSizer(sizer)
+    
+    def save(self):
+        return False
 
 class SavegameNotebook(wx.Treebook):
     def __init__(self, *args, **kwargs):
@@ -1167,12 +1272,34 @@ class SavegameNotebook(wx.Treebook):
         self.AddPage(_info_panel(self, "Choose a character on the left to see and change learned spells, talents,\n"
                                        "skills and specializations."), "Spells & Skills")
         self.abilities = []
-        for name, creature in zip(names, creatures):
+        for number, (name, creature) in enumerate(zip(names, creatures)):
             panel = AbilitiesPanel(self)
-            panel.load(creature[SAVEGAME_CREATURE_STATS], name)
+            panel.load(creature[SAVEGAME_CREATURE_STATS], name, allow_class_change=(number == 0))
             self.abilities.append(panel)
             self.savables.append(panel)
             self.AddSubPage(panel, name)
+        
+        self.AddPage(_info_panel(self, "Choose a character on the left to see and change the equipped items."),
+                     "Equipment")
+        self.equipment = []
+        for name, creature in zip(names, creatures):
+            try:
+                items = creature[SAVEGAME_EQUIPMENT_ITEMS]
+            except KeyError:
+                continue
+            panel = EquipmentList(self)
+            panel.load(items, root, game_version)
+            self.equipment.append(panel)
+            self.savables.append(panel)
+            self.AddSubPage(panel, name)
+        
+        self.quests = QuestsPanel(self)
+        self.quests.load(root)
+        self.AddPage(self.quests, "Quests")
+        
+        self.location = LocationPanel(self)
+        self.location.load(root)
+        self.AddPage(self.location, "Location")
         
         self.AddPage(wx.Panel(self), "Areas")
         self.area_items = AreaInventoryPanel(self)

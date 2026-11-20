@@ -1,11 +1,5 @@
 # Dragon Age Origins Savegame Editor for XDroid360
 
-PRE-RELEASE (github page got auto created and will be updated soon).
-Page will be in english.
-Save Editor works and can be used to edit saves which got exported from XDroid360.
-python3-wxgtk4.0 is needed to open it
-
-––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––-
 Spielstand-Editor für **Dragon Age: Origins** (Xbox-360-Version, wie sie XDroid360 auf Android verwendet),
 lauffähig unter Linux (getestet für Linux Mint). Python 3 + wxPython 4.
 
@@ -35,8 +29,15 @@ Ohne Installation: `python3 daosavegame.py [datei.das]`
 * **Party → Charaktername:** Stats ansehen/ändern; Rechtsklick: Add Known Attribute (z. B. Resistenzen),
   Add Attribute by Index…
 * **Points:** Attribut-, Skill-, Talent/Zauber- und Spezialisierungspunkte je Charakter
+* **Equipment:** die ausgerüsteten Items je Charakter (Spalte „Slot“ = Position in der Liste); ResRef, Count und
+  alle Felder bearbeitbar, aber kein Duplizieren/Verschieben (feste Anzahl Slots).
+* **Quests:** aktive und abgeschlossene Quests aus dem Journal (nur Anzeige; der Save enthält nur Text-IDs, keine
+  lesbaren Titel).
+* **Location:** aktuelles Gebiet, Position und gespeicherte Gebiete (nur Anzeige).
 * **Spells & Skills:** alle bekannten Zauber, Talente, Skills und Spezialisierungen mit Häkchen (= gelernt),
   Suche, Filter und „Add by ID…“. Die Gruppe „Immunities (experimental)“ ist ungetestet.
+  Nur beim Spielercharakter: **Change class (experimental)…** entfernt Zauber/Talente der alten Klasse und setzt
+  die Klassenmarkierung der neuen. Im Spiel nicht geprüft, vorher unbedingt sichern.
 
 ## XDroid360
 

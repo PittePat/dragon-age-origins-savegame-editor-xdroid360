@@ -254,3 +254,44 @@ def set_point_stat(root, stat_list, index, value):
         return False
     entry[LABEL_STAT_BASE] = float(value)
     return True
+
+# ------------------------------------------------------------------ class change (experimental)
+# The base class of a character is marked by a hidden ability: warrior/rogue in the talent list, mage in the spell list.
+CLASS_MARKERS = {'warrior': 4022, 'mage': 4023, 'rogue': 4020}
+CLASS_TITLES = {'warrior': 'Warrior', 'mage': 'Mage', 'rogue': 'Rogue'}
+CLASS_KIND = {'warrior': 'talent', 'rogue': 'talent', 'mage': 'spell'}
+
+def current_class(model):
+    """'warrior', 'mage', 'rogue' - or None if the character carries no class marker."""
+    for name, ability_id in CLASS_MARKERS.items():
+        if model.is_learned(CLASS_KIND[name], ability_id):
+            return name
+    return None
+
+def class_change_plan(model, target):
+    """[(kind, id, name)] of the class abilities that a change to `target` removes. Skills, immunities and ids the
+    catalog does not know are left alone."""
+    known = catalog_by_list()
+    remove = []
+    for kind in ('spell', 'talent'):
+        label = KIND_LABEL[kind]
+        for ability_id in model.ids(label):
+            entry = known.get(label, {}).get(ability_id)
+            if entry is not None and entry.kind == kind:
+                remove.append((kind, ability_id, entry.name))
+    return remove
+
+def change_class(model, target):
+    """Removes all spells/talents of the old class and sets the class marker of `target`.
+    Returns (old class, number of removed abilities)."""
+    if target not in CLASS_MARKERS:
+        raise ValueError(target)
+    old = current_class(model)
+    if old == target:
+        return old, 0
+    removed = 0
+    for kind, ability_id, name in class_change_plan(model, target):
+        if model.set_learned(kind, ability_id, False):
+            removed += 1
+    model.set_learned(CLASS_KIND[target], CLASS_MARKERS[target], True)
+    return old, removed
