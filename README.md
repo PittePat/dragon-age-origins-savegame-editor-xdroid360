@@ -1,5 +1,7 @@
 # Dragon Age Origins Savegame Editor for XDroid360
 
+**Version 0.5 (Beta)**
+
 Spielstand-Editor für **Dragon Age: Origins** (Xbox-360-Version, wie sie XDroid360 auf Android verwendet),
 lauffähig unter Linux (getestet für Linux Mint). Python 3 + wxPython 4.
 
@@ -31,8 +33,12 @@ Ohne Installation: `python3 daosavegame.py [datei.das]`
 * **Points:** Attribut-, Skill-, Talent/Zauber- und Spezialisierungspunkte je Charakter
 * **Equipment:** die ausgerüsteten Items je Charakter (Spalte „Slot“ = Position in der Liste); ResRef, Count und
   alle Felder bearbeitbar, aber kein Duplizieren/Verschieben (feste Anzahl Slots).
-* **Quests:** aktive und abgeschlossene Quests aus dem Journal (nur Anzeige; der Save enthält nur Text-IDs, keine
-  lesbaren Titel).
+* **Quests:** aktive und abgeschlossene Quests aus dem Journal (nur Anzeige). Der Save enthält nur Text-IDs; für
+  lesbare Titel und den aktuellen Quest-Text über **Load game text (.tlk)…** die Textdateien des Spiels laden
+  (z. B. `core_de-de.tlk` und `singleplayer_de-de.tlk`, optional die `_f`-Varianten für weibliche Charaktere, alle
+  derselben Sprache). Die Dateien werden gemerkt (`~/.config/dragonage-savegame-editor/settings.json`).
+  Quests aus Zusatzinhalten (DLC) brauchen deren eigene `.tlk`-Dateien. Die Spieldateien liegen nicht im
+  Repository und müssen aus der eigenen Spielinstallation stammen.
 * **Location:** aktuelles Gebiet, Position und gespeicherte Gebiete (nur Anzeige).
 * **Spells & Skills:** alle bekannten Zauber, Talente, Skills und Spezialisierungen mit Häkchen (= gelernt),
   Suche, Filter und „Add by ID…“. Die Gruppe „Immunities (experimental)“ ist ungetestet.

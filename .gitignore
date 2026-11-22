@@ -5,3 +5,6 @@ __pycache__/
 *.bak
 dist/
 *.zip
+# game files must never be committed
+*.tlk
+*.erf

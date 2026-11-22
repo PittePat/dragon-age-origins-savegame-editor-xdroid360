@@ -4,13 +4,13 @@ from collections import namedtuple
 
 from gff4.datoolset_fields import (
     SAVEGAME_CAMPAIGN, SAVEGAME_JOURNAL, SAVEGAME_JOURNAL_ACTIVE_LIST, SAVEGAME_JOURNAL_COMPLETE_LIST,
-    SAVEGAME_JOURNAL_TITLE, SAVEGAME_JOURNAL_RESREF, SAVEGAME_JOURNAL_QUEST_GROUP,
+    SAVEGAME_JOURNAL_TITLE, SAVEGAME_JOURNAL_TEXT, SAVEGAME_JOURNAL_RESREF, SAVEGAME_JOURNAL_QUEST_GROUP,
     SAVEGAME_JOURNAL_QUEST_UPDATED, CAMPAIGN_CIF_ENTRY_AREA, CAMPAIGN_CIF_ENTRY_POSITION,
     SAVEGAME_PLAYERCHAR, SAVEGAME_PLAYERCHAR_CHAR, POSITION, SAVEGAME_PLAYER_MAP_ZOOM,
-    SAVEGAME_AREALIST, TAG,
+    SAVEGAME_AREALIST, TAG, SAVEGAME_APPEARANCE, SAVEGAME_APPEARANCE_GENDER,
 )
 
-Quest = namedtuple('Quest', 'status resref group title_id title updated')
+Quest = namedtuple('Quest', 'status resref group title_id text_id title updated')
 Location = namedtuple('Location', 'area area_name position entry_position zoom visited')
 
 def _clean(value):
@@ -30,9 +30,10 @@ def quest_entries(root):
         except KeyError:
             continue
         for q in entries:
-            title = q[SAVEGAME_JOURNAL_TITLE]
+            title, text = q[SAVEGAME_JOURNAL_TITLE], q[SAVEGAME_JOURNAL_TEXT]
             quests.append(Quest(status, _clean(q[SAVEGAME_JOURNAL_RESREF]), _clean(q[SAVEGAME_JOURNAL_QUEST_GROUP]),
-                                int(title.label), _clean(title.s), bool(int(q[SAVEGAME_JOURNAL_QUEST_UPDATED]))))
+                                int(title.label), int(text.label), _clean(title.s),
+                                bool(int(q[SAVEGAME_JOURNAL_QUEST_UPDATED]))))
     return quests
 
 def _vec(v):
@@ -55,3 +56,11 @@ def location_info(root, names=None):
         pass
     return Location(area, names.get(area, ''), _vec(creature[POSITION]), _vec(campaign[CAMPAIGN_CIF_ENTRY_POSITION]),
                     float(player[SAVEGAME_PLAYER_MAP_ZOOM]), visited)
+
+def player_is_female(root):
+    """True if the player character is female (selects the '*_f.tlk' text variants)."""
+    try:
+        appearance = root[SAVEGAME_PLAYERCHAR][SAVEGAME_PLAYERCHAR_CHAR][SAVEGAME_APPEARANCE]
+        return int(appearance[SAVEGAME_APPEARANCE_GENDER]) == 2
+    except KeyError:
+        return False
