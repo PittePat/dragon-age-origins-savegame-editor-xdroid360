@@ -27,7 +27,9 @@ from gff4 import *
 from gff4.lazy import LazyGFF4
 from gff4.datoolset_fields import *
 from savezip import find_saves, read_member, replace_in_zip, format_seconds
-from saveinfo import quest_entries, location_info
+from saveinfo import quest_entries, location_info, player_is_female
+from tlk import TalkTable, plain_text
+from settings import load_talktable, remember_talk_files
 from abilities import (AbilityModel, current_class, class_change_plan, change_class, CLASS_TITLES, POINT_STATS, KIND_TITLE, KIND_LABEL, stat_value, set_point_stat,
                        add_stat_property)
 
@@ -41,6 +43,7 @@ def selectedIndices(lst, i=-1):
         yield i
         i = lst.GetNextSelected(i)
 
+VERSION = "0.5"          # program version (shown in the About dialog)
 VERSION_DAO = 1
 
 def _read_lines(name):
@@ -1136,37 +1139,96 @@ class LocationPanel(wx.Panel):
         return False
 
 class QuestsPanel(wx.Panel):
-    """Active and completed quests from the journal (read-only)."""
+    """Active and completed quests from the journal (read-only). The savegame only holds text ids; readable titles
+    and texts come from the game's talk tables (*.tlk), which can be loaded here and are remembered."""
     def __init__(self, parent):
         super(QuestsPanel, self).__init__(parent)
-    
-    def load(self, root):
-        quests = quest_entries(root)
-        self.list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_HRULES | wx.LC_VRULES)
-        for i, (title, width) in enumerate((("Status", 80), ("Quest", 200), ("Group", 150), ("Title", 330),
+        self.talk = None
+        self.quests = []
+        self.female = False
+        
+        self.summary = wx.StaticText(self, label="")
+        self.load_button = wx.Button(self, label="Load game text (.tlk)...")
+        self.list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_HRULES | wx.LC_VRULES | wx.LC_SINGLE_SEL)
+        for i, (title, width) in enumerate((("Status", 80), ("Quest", 190), ("Group", 140), ("Title", 300),
                                             ("Updated", 70))):
             self.list.InsertColumn(i, title, wx.LIST_FORMAT_LEFT, width)
-        for i, q in enumerate(quests):
+        self.detail = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(-1, 120))
+        
+        top = wx.BoxSizer(wx.HORIZONTAL)
+        top.Add(self.summary, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+        top.Add(self.load_button, 0)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(top, 0, wx.EXPAND | wx.ALL, 10)
+        sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        sizer.Add(self.detail, 0, wx.EXPAND | wx.ALL, 10)
+        self.SetSizer(sizer)
+        
+        self.load_button.Bind(wx.EVT_BUTTON, self.OnLoadText)
+        self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSelect)
+    
+    def load(self, root, talk=None):
+        self.talk = talk
+        self.quests = quest_entries(root)
+        self.female = player_is_female(root)
+        self.Fill()
+    
+    def _text(self, string_id):
+        text = self.talk.text(string_id, self.female) if self.talk else None
+        return plain_text(text) if text else None
+    
+    def Fill(self):
+        self.list.DeleteAllItems()
+        for i, q in enumerate(self.quests):
             self.list.InsertItem(i, q.status)
             self.list.SetItem(i, 1, q.resref)
             self.list.SetItem(i, 2, q.group)
-            self.list.SetItem(i, 3, q.title or "text #%d" % q.title_id)
+            self.list.SetItem(i, 3, self._text(q.title_id) or q.title or "text #%d" % q.title_id)
             self.list.SetItem(i, 4, "yes" if q.updated else "")
-        
-        active = sum(1 for q in quests if q.status == 'Active')
-        summary = wx.StaticText(self, label="%d active, %d completed. The savegame stores only text ids for the titles, "
-                                            "so readable titles are not available (yet). Display only: quest progress "
-                                            "also depends on game variables, so it is not editable here."
-                                % (active, len(quests) - active))
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(summary, 0, wx.ALL, 10)
-        sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
-        self.SetSizer(sizer)
+        active = sum(1 for q in self.quests if q.status == 'Active')
+        hint = ("" if self.talk else " Load the game's .tlk files to see readable titles.")
+        self.summary.SetLabel("%d active, %d completed.%s Display only: quest progress also depends on "
+                              "game variables, so it is not editable." % (active, len(self.quests) - active, hint))
+        self.detail.SetValue("")
+    
+    def OnSelect(self, event):
+        q = self.quests[event.GetIndex()]
+        title = self._text(q.title_id) or "text #%d" % q.title_id
+        stage = self._text(q.text_id) or ("(text #%d)" % q.text_id)
+        self.detail.SetValue("%s\n\n%s" % (title, stage))
+    
+    def OnLoadText(self, event):
+        if self.talk is None:
+            self.talk = TalkTable()
+        start = os.path.dirname(self.talk.files[-1]) if self.talk.files else ""
+        wildcard = "Dragon Age talk tables (*.tlk)|*.tlk;*.TLK|All files|*"
+        with wx.FileDialog(self, "Choose the game's text files (e.g. core_de-de.tlk and singleplayer_de-de.tlk)",
+                           start, "", wildcard, wx.FD_OPEN | wx.FD_MULTIPLE | wx.FD_FILE_MUST_EXIST) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            paths = dlg.GetPaths()
+        loaded, problems = [], []
+        for path in paths:
+            try:
+                self.talk.add_file(path)
+                loaded.append(path)
+            except (OSError, ValueError) as ex:
+                problems.append("%s: %s" % (os.path.basename(path), ex))
+        if loaded:
+            try:
+                remember_talk_files(loaded)
+            except OSError as ex:
+                problems.append("The settings could not be saved: %s" % ex)
+        if problems:
+            wx.MessageBox("\n".join(problems), "Game text", wx.OK | wx.ICON_WARNING, self)
+        self.Fill()
     
     def save(self):
         return False
 
 class SavegameNotebook(wx.Treebook):
+    talk = None        # TalkTable with the game's texts for the quest page; set by the main window
+    
     def __init__(self, *args, **kwargs):
         super(SavegameNotebook, self).__init__(*args, **kwargs)
         self.AddPage(wx.Panel(self), "No Data")
@@ -1294,7 +1356,7 @@ class SavegameNotebook(wx.Treebook):
             self.AddSubPage(panel, name)
         
         self.quests = QuestsPanel(self)
-        self.quests.load(root)
+        self.quests.load(root, self.talk)
         self.AddPage(self.quests, "Quests")
         
         self.location = LocationPanel(self)
@@ -1358,6 +1420,7 @@ class MyFrame(wx.Frame):
     def __init__(self, *args, **kwargs):
         super(MyFrame, self).__init__(*args, **kwargs)
         self.control = SavegameNotebook(self, wx.ID_ANY)
+        self.control.talk = load_talktable()        # game texts for quest titles (files remembered from earlier runs)
         self.CreateStatusBar()
         
         self.filename = ''
@@ -1531,7 +1594,7 @@ class MyFrame(wx.Frame):
         self.SetStatusText(msg)
 
     def OnAbout(self, event):
-        with wx.MessageDialog(self, "Dragon Age Origins Savegame Editor for XDroid360\n\nBased on the savegame editor by Mephales "
+        with wx.MessageDialog(self, "Dragon Age Origins Savegame Editor for XDroid360\nVersion " + VERSION + "\n\nBased on the savegame editor by Mephales "
                               "(part of pygff by William Clark).\n\nPython 3 / wxPython 4 port for Linux.",
                               "About Dragon Age Origins Savegame Editor for XDroid360", wx.OK) as dlg:
             dlg.ShowModal()
