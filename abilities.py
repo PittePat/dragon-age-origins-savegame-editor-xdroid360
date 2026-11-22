@@ -182,11 +182,23 @@ class AbilityModel(object):
     def is_learned(self, kind, ability_id):
         return int(ability_id) in self.ids(KIND_LABEL[kind])
 
-    def rows(self):
-        """Every catalog ability plus every id found in the savegame that the catalog does not know."""
+    def character_class(self):
+        """'warrior', 'mage' or 'rogue' - None if the character has no class marker (companions like the dog)."""
+        return current_class(self)
+
+    def rows(self, all_classes=False):
+        """The abilities the character can have: skills and immunities for everybody, spells/talents/specializations
+        only of the character's own class (all of them if the class is unknown). Abilities the character has already
+        learned are always listed, plus every id found in the savegame that the catalog does not know."""
         by_list = catalog_by_list()
         have = {label: set(self.ids(label)) for label in (LABEL_SPELLLIST, LABEL_TALENTLIST, LABEL_SKILLLIST)}
-        rows = [Row(e.kind, e.id, e.name, e.group, e.id in have[KIND_LABEL[e.kind]], True) for e in CATALOG]
+        allowed = None if all_classes else CLASS_GROUPS.get(self.character_class())
+        rows = []
+        for e in CATALOG:
+            learned = e.id in have[KIND_LABEL[e.kind]]
+            if allowed is not None and e.kind in ('spell', 'talent') and not learned and e.group not in allowed:
+                continue
+            rows.append(Row(e.kind, e.id, e.name, e.group, learned, True))
         for label, kind in ((LABEL_SPELLLIST, 'spell'), (LABEL_TALENTLIST, 'talent'), (LABEL_SKILLLIST, 'skill')):
             for aid in self.ids(label):
                 if aid not in by_list.get(label, {}):
@@ -255,11 +267,28 @@ def set_point_stat(root, stat_list, index, value):
     entry[LABEL_STAT_BASE] = float(value)
     return True
 
-# ------------------------------------------------------------------ class change (experimental)
+# ------------------------------------------------------------------ classes
 # The base class of a character is marked by a hidden ability: warrior/rogue in the talent list, mage in the spell list.
 CLASS_MARKERS = {'warrior': 4022, 'mage': 4023, 'rogue': 4020}
 CLASS_TITLES = {'warrior': 'Warrior', 'mage': 'Mage', 'rogue': 'Rogue'}
 CLASS_KIND = {'warrior': 'talent', 'rogue': 'talent', 'mage': 'spell'}
+
+_MAGE_GROUPS = (
+    'Mage - Arcane', 'Primal - Fire', 'Primal - Earth', 'Primal - Cold', 'Primal - Lightning',
+    'Creation - Heal line', 'Creation - Heroic line', 'Creation - Glyph line', 'Creation - Spell Wisp line',
+    'Spirit - Spell Shield line', 'Spirit - Mana line', 'Spirit - Walking Bomb line', 'Spirit - Mind Blast line',
+    'Entropy - Weakness line', 'Entropy - Hex line', 'Entropy - Disorient line', 'Entropy - Drain Life line',
+    'Specialization - Arcane Warrior', 'Specialization - Blood Mage', 'Specialization - Shapeshifter',
+    'Specialization - Spirit Healer')
+# Dual Weapon and Archery can be learned by warriors and rogues
+_WARRIOR_GROUPS = (
+    'Warrior - base', 'Warrior - Dual Weapon', 'Warrior - Weapon and Shield', 'Warrior - Two-Handed', 'Rogue - Archery',
+    'Specialization - Champion', 'Specialization - Berserker', 'Specialization - Reaver', 'Specialization - Templar')
+_ROGUE_GROUPS = (
+    'Rogue - base', 'Rogue - Archery', 'Warrior - Dual Weapon',
+    'Specialization - Assassin', 'Specialization - Bard', 'Specialization - Ranger', 'Specialization - Duelist')
+CLASS_GROUPS = {'mage': frozenset(_MAGE_GROUPS), 'warrior': frozenset(_WARRIOR_GROUPS),
+                'rogue': frozenset(_ROGUE_GROUPS)}
 
 def current_class(model):
     """'warrior', 'mage', 'rogue' - or None if the character carries no class marker."""
@@ -267,31 +296,3 @@ def current_class(model):
         if model.is_learned(CLASS_KIND[name], ability_id):
             return name
     return None
-
-def class_change_plan(model, target):
-    """[(kind, id, name)] of the class abilities that a change to `target` removes. Skills, immunities and ids the
-    catalog does not know are left alone."""
-    known = catalog_by_list()
-    remove = []
-    for kind in ('spell', 'talent'):
-        label = KIND_LABEL[kind]
-        for ability_id in model.ids(label):
-            entry = known.get(label, {}).get(ability_id)
-            if entry is not None and entry.kind == kind:
-                remove.append((kind, ability_id, entry.name))
-    return remove
-
-def change_class(model, target):
-    """Removes all spells/talents of the old class and sets the class marker of `target`.
-    Returns (old class, number of removed abilities)."""
-    if target not in CLASS_MARKERS:
-        raise ValueError(target)
-    old = current_class(model)
-    if old == target:
-        return old, 0
-    removed = 0
-    for kind, ability_id, name in class_change_plan(model, target):
-        if model.set_learned(kind, ability_id, False):
-            removed += 1
-    model.set_learned(CLASS_KIND[target], CLASS_MARKERS[target], True)
-    return old, removed

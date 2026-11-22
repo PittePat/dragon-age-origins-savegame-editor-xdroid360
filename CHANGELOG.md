@@ -4,6 +4,11 @@
 - Quests: lesbare Titel und Quest-Texte aus den Spiel-Textdateien (`*.tlk`, Huffman-komprimiertes GFF-Format der
   Xbox-360-Version) über „Load game text (.tlk)…“; weibliche Textvarianten (`*_f.tlk`) werden berücksichtigt,
   die gewählten Dateien werden gemerkt. Detailfeld mit dem aktuellen Quest-Text.
+- „Spells & Skills“ ist wie im Spiel in zwei Reiter getrennt: „Spells & Talents“ (Zauber, Talente und
+  Spezialisierungen) und „Skills“.
+- Spells & Talents zeigt nur noch Fähigkeiten der Klasse des Charakters (ein Mage sieht nur Mage-Zauber und
+  Mage-Spezialisierungen); bereits gelernte Fähigkeiten bleiben sichtbar.
+- Entfernt: „Change class (experimental)…“ (funktionierte nicht).
 - Versionsnummer im About-Dialog.
 
 ## v0.2

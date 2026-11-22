@@ -30,7 +30,7 @@ from savezip import find_saves, read_member, replace_in_zip, format_seconds
 from saveinfo import quest_entries, location_info, player_is_female
 from tlk import TalkTable, plain_text
 from settings import load_talktable, remember_talk_files
-from abilities import (AbilityModel, current_class, class_change_plan, change_class, CLASS_TITLES, POINT_STATS, KIND_TITLE, KIND_LABEL, stat_value, set_point_stat,
+from abilities import (AbilityModel, CLASS_TITLES, POINT_STATS, KIND_TITLE, KIND_LABEL, stat_value, set_point_stat,
                        add_stat_property)
 
 _resdir = os.path.join(_here, 'gff4')
@@ -952,23 +952,29 @@ class PointsPanel(wx.Panel):
             self.Apply()
         return self.changed
 
+SPELL_KINDS = ('spell', 'talent', 'trait')      # the "Spells & Talents" tab: spells, talents, specializations, immunities
+SKILL_KINDS = ('skill',)                        # the "Skills" tab
+_KIND_CHOICES = {'spell': "Spells (mage)", 'talent': "Talents (warrior/rogue)", 'skill': "Skills",
+                 'trait': "Immunities (experimental)"}
+
 class AbilitiesPanel(wx.Panel):
-    """Spells, talents, skills and specializations of one character: tick = learned."""
-    KINDS = [None, 'spell', 'talent', 'skill', 'trait']
-    
-    def __init__(self, parent):
+    """Abilities of one character: tick = learned. `kinds` selects what this tab offers: spells, talents and
+    specializations (SPELL_KINDS) or skills (SKILL_KINDS), like the two parts of the character screen of the game."""
+    def __init__(self, parent, kinds=SPELL_KINDS):
         super(AbilitiesPanel, self).__init__(parent)
         self.changed = False
         self.model = None
         self.shown = []
+        self.kinds = tuple(kinds)
+        self.type_kinds = [None] + list(self.kinds)
         
         self.search = wx.TextCtrl(self)
-        self.kind = wx.Choice(self, choices=["All types", "Spells (mage)", "Talents (warrior/rogue)", "Skills",
-                                             "Immunities (experimental)"])
+        self.kind = wx.Choice(self, choices=["All types"] + [_KIND_CHOICES[k] for k in self.kinds])
         self.kind.SetSelection(0)
+        if len(self.kinds) == 1:
+            self.kind.Show(False)           # nothing to choose between
         self.only_learned = wx.CheckBox(self, label="Learned only")
         self.add_button = wx.Button(self, label="Add by ID...")
-        self.class_button = wx.Button(self, label="Change class (experimental)...")
         
         self.list = wx.dataview.DataViewListCtrl(self, style=wx.dataview.DV_ROW_LINES | wx.dataview.DV_SINGLE)
         self.list.AppendToggleColumn("Learned", mode=wx.dataview.DATAVIEW_CELL_ACTIVATABLE, width=70)
@@ -982,8 +988,7 @@ class AbilitiesPanel(wx.Panel):
         bar.Add(self.search, 1, wx.RIGHT, 10)
         bar.Add(self.kind, 0, wx.RIGHT, 10)
         bar.Add(self.only_learned, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
-        bar.Add(self.add_button, 0, wx.RIGHT, 10)
-        bar.Add(self.class_button, 0)
+        bar.Add(self.add_button, 0)
         
         self.title = wx.StaticText(self, label="")
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -996,24 +1001,28 @@ class AbilitiesPanel(wx.Panel):
         self.kind.Bind(wx.EVT_CHOICE, self.OnFilter)
         self.only_learned.Bind(wx.EVT_CHECKBOX, self.OnFilter)
         self.add_button.Bind(wx.EVT_BUTTON, self.OnAddById)
-        self.class_button.Bind(wx.EVT_BUTTON, self.OnChangeClass)
         self.list.Bind(wx.dataview.EVT_DATAVIEW_ITEM_VALUE_CHANGED, self.OnToggle)
     
-    def load(self, stats, name, allow_class_change=False):
-        """stats: the creature's CPS1 structure. The class can only be changed for the player character."""
+    def load(self, stats, name):
+        """stats: the creature's CPS1 structure."""
         self.model = AbilityModel(stats)
-        self.class_button.Show(allow_class_change)
-        self.title.SetLabel("Abilities of %s  -  tick = learned, untick = remove. Applied when you save." % name)
+        if 'skill' in self.kinds:
+            what = "Skills of %s (the same for every class)." % name
+        else:
+            cls = self.model.character_class()
+            shown = "%s abilities" % CLASS_TITLES[cls] if cls else "all abilities (class not detected)"
+            what = "Spells, talents and specializations of %s - showing %s." % (name, shown)
+        self.title.SetLabel("%s  Tick = learned, untick = remove. Applied when you save." % what)
         self.Rebuild()
     
     def Rebuild(self):
         words = self.search.GetValue().lower().split()
-        wanted_kind = self.KINDS[max(0, self.kind.GetSelection())]
+        wanted_kind = self.type_kinds[max(0, self.kind.GetSelection())]
         learned_only = self.only_learned.GetValue()
         self.list.DeleteAllItems()
         self.shown = []
         for r in self.model.rows():
-            if wanted_kind and r.kind != wanted_kind:
+            if r.kind not in self.kinds or (wanted_kind and r.kind != wanted_kind):
                 continue
             if learned_only and not r.learned:
                 continue
@@ -1046,38 +1055,20 @@ class AbilitiesPanel(wx.Panel):
             wx.MessageBox("Not possible for this character: %s" % ex, "Abilities", wx.OK | wx.ICON_INFORMATION, self)
             self.list.SetToggleValue(not wanted, row, 0)
     
-    def OnChangeClass(self, event):
-        current = current_class(self.model)
-        targets = [c for c in ('warrior', 'mage', 'rogue') if c != current]
-        with wx.SingleChoiceDialog(self, "Current class: %s\nChange to:" % CLASS_TITLES.get(current, "unknown"),
-                                   "Change class (experimental)", [CLASS_TITLES[c] for c in targets]) as dlg:
-            if dlg.ShowModal() != wx.ID_OK:
-                return
-            target = targets[dlg.GetSelection()]
-        removed = ", ".join(n for kind, i, n in class_change_plan(self.model, target)) or "nothing"
-        answer = wx.MessageBox("EXPERIMENTAL - not verified in the game. Make a backup first.\n\n"
-                               "Changing to %s removes the spells/talents of the current class (%s) and sets the "
-                               "class marker. Skills, attributes, level and equipment stay as they are, and the "
-                               "abilities of the new class have to be added afterwards (Spells & Skills, Points).\n\n"
-                               "Continue?" % (CLASS_TITLES[target], removed),
-                               "Change class", wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self)
-        if answer != wx.YES:
-            return
-        change_class(self.model, target)
-        self.changed = True
-        self.Rebuild()
-    
     def OnAddById(self, event):
         ability_id = wx.GetNumberFromUser("Ability id to add (as used by the console command 'addtalent').",
                                           "ID:", "Add ability by ID", 1, 0, 999999, self)
         if ability_id < 0:
             return
-        kinds = ['spell', 'talent', 'skill']
-        with wx.SingleChoiceDialog(self, "Which list should it be added to?", "Ability type",
-                                   ["Spell (mage)", "Talent (warrior/rogue)", "Skill"]) as dlg:
-            if dlg.ShowModal() != wx.ID_OK:
-                return
-            kind = kinds[dlg.GetSelection()]
+        options = [k for k in ('spell', 'talent', 'skill') if k in self.kinds]
+        if len(options) == 1:
+            kind = options[0]
+        else:
+            with wx.SingleChoiceDialog(self, "Which list should it be added to?", "Ability type",
+                                       [_KIND_CHOICES[k] for k in options]) as dlg:
+                if dlg.ShowModal() != wx.ID_OK:
+                    return
+                kind = options[dlg.GetSelection()]
         try:
             if self.model.set_learned(kind, ability_id, True):
                 self.changed = True
@@ -1331,13 +1322,24 @@ class SavegameNotebook(wx.Treebook):
             self.savables.append(panel)
             self.AddSubPage(panel, name)
         
-        self.AddPage(_info_panel(self, "Choose a character on the left to see and change learned spells, talents,\n"
-                                       "skills and specializations."), "Spells & Skills")
+        self.AddPage(_info_panel(self, "Choose a character on the left to see and change the learned spells, talents\n"
+                                       "and specializations (only those of the character's class)."),
+                     "Spells & Talents")
         self.abilities = []
-        for number, (name, creature) in enumerate(zip(names, creatures)):
-            panel = AbilitiesPanel(self)
-            panel.load(creature[SAVEGAME_CREATURE_STATS], name, allow_class_change=(number == 0))
+        for name, creature in zip(names, creatures):
+            panel = AbilitiesPanel(self, SPELL_KINDS)
+            panel.load(creature[SAVEGAME_CREATURE_STATS], name)
             self.abilities.append(panel)
+            self.savables.append(panel)
+            self.AddSubPage(panel, name)
+        
+        self.AddPage(_info_panel(self, "Choose a character on the left to see and change the learned skills."),
+                     "Skills")
+        self.skills = []
+        for name, creature in zip(names, creatures):
+            panel = AbilitiesPanel(self, SKILL_KINDS)
+            panel.load(creature[SAVEGAME_CREATURE_STATS], name)
+            self.skills.append(panel)
             self.savables.append(panel)
             self.AddSubPage(panel, name)
         
