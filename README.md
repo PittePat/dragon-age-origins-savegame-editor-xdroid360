@@ -40,10 +40,14 @@ Ohne Installation: `python3 daosavegame.py [datei.das]`
   Quests aus Zusatzinhalten (DLC) brauchen deren eigene `.tlk`-Dateien. Die Spieldateien liegen nicht im
   Repository und müssen aus der eigenen Spielinstallation stammen.
 * **Location:** aktuelles Gebiet, Position und gespeicherte Gebiete (nur Anzeige).
-* **Spells & Skills:** alle bekannten Zauber, Talente, Skills und Spezialisierungen mit Häkchen (= gelernt),
-  Suche, Filter und „Add by ID…“. Die Gruppe „Immunities (experimental)“ ist ungetestet.
-  Nur beim Spielercharakter: **Change class (experimental)…** entfernt Zauber/Talente der alten Klasse und setzt
-  die Klassenmarkierung der neuen. Im Spiel nicht geprüft, vorher unbedingt sichern.
+* **Spells & Talents** (wie im Spiel getrennt von den Skills): Zauber, Talente und Spezialisierungen mit Häkchen
+  (= gelernt), Suche, Filter, „Learned only“ und „Add by ID…“. Es werden nur die Fähigkeiten **der Klasse des
+  Charakters** angeboten (Mage: Zauber und Mage-Spezialisierungen, Warrior/Rogue: Talente und ihre
+  Spezialisierungen). Bereits gelernte Fähigkeiten einer anderen Klasse bleiben sichtbar, damit man sie entfernen
+  kann. Wird keine Klasse erkannt (z. B. beim Hund), werden alle angezeigt. Dual Weapon und Archery sind für
+  Warrior und Rogue freigegeben. Die Gruppe „Immunities (experimental)“ ist ungetestet.
+* **Skills:** die Skills (Coercion, Combat Tactics, Combat Training, Herbalism, Lockpicking, Poison-Making, Stealing,
+  Stealth, Survival, Trap-Making, je 4 Stufen) mit Häkchen; für alle Klassen gleich.
 
 ## XDroid360
 
